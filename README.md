@@ -62,7 +62,7 @@ cannot approve exceptions or change policy.
 |---|---|---|---|
 | `token` | yes | (none) | pkgwarden gate API token. Use a `ci` token from a secret; never inline it. |
 | `api-url` | no | `https://index.pkgwarden.com/api/v1` | Base URL of the gate API. Change only for a self-hosted deployment. |
-| `version` | no | `0.2.1` | pkgwarden CLI version; resolves to release tag `pw-v<version>`. |
+| `version` | no | `0.2.2` | pkgwarden CLI version; resolves to release tag `pw-v<version>`. |
 | `working-directory` | no | `.` | Directory holding the lockfiles to configure for. |
 
 The action verifies the downloaded binary against the release's `SHA256SUMS` and fails the

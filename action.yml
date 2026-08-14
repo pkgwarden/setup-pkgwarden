@@ -103,9 +103,9 @@ runs:
       run: |
         set -euo pipefail
 
-        # No literal expression syntax in this message: GitHub parses "${{" inside a
-        # composite `run:` block at template-load time and has no escape for it, so an
-        # example containing one fails the whole action with "Unrecognized named-value".
+        # Never write GitHub's expression opener (dollar + two braces) anywhere in this
+        # file's shell, comments included: the template parser reads it at load time, has
+        # no escape for it, and a stray one fails the whole action before it ever runs.
         if [ -z "${PKGWARDEN_ACTION_TOKEN}" ]; then
           echo "setup-pkgwarden: the 'token' input is empty. Set it to your gate token from a repository or organization secret (see the usage example in the README)." >&2
           exit 1
