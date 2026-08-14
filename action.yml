@@ -23,7 +23,7 @@ inputs:
       pkgwarden CLI version to install; maps to the release tag pw-v<version>
       on github.com/pkgwarden/pkgwarden_cli.
     required: false
-    default: "0.2.1"
+    default: "0.2.2"
   working-directory:
     description: >-
       Directory holding the lockfile to configure for. GitHub Actions does not allow
@@ -103,8 +103,11 @@ runs:
       run: |
         set -euo pipefail
 
+        # No literal expression syntax in this message: GitHub parses "${{" inside a
+        # composite `run:` block at template-load time and has no escape for it, so an
+        # example containing one fails the whole action with "Unrecognized named-value".
         if [ -z "${PKGWARDEN_ACTION_TOKEN}" ]; then
-          echo "setup-pkgwarden: the 'token' input is empty. Pass a gate token, e.g. token: \${{ secrets.PKGWARDEN_CI_TOKEN }}." >&2
+          echo "setup-pkgwarden: the 'token' input is empty. Set it to your gate token from a repository or organization secret (see the usage example in the README)." >&2
           exit 1
         fi
 
