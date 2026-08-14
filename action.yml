@@ -1,0 +1,144 @@
+name: setup-pkgwarden
+description: >-
+  Install the pkgwarden CLI and route npm, uv, and pip installs through the
+  pkgwarden gate so blocked packages never reach the runner.
+author: pkgwarden
+
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  token:
+    description: >-
+      pkgwarden gate API token. Use a token of type "ci" and store it as a
+      repository or organization secret; never inline it in the workflow.
+    required: true
+  api-url:
+    description: Base URL of the pkgwarden gate API.
+    required: false
+    default: https://index.pkgwarden.com/api/v1
+  version:
+    description: >-
+      pkgwarden CLI version to install; maps to the release tag pw-v<version>
+      on github.com/pkgwarden/pkgwarden_cli.
+    required: false
+    default: "0.2.1"
+  working-directory:
+    description: >-
+      Directory holding the lockfile to configure for. GitHub Actions does not allow
+      working-directory on a `uses:` step, so a monorepo has to say it here.
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Install the pkgwarden CLI
+      shell: bash
+      env:
+        PKGWARDEN_CLI_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        case "$(uname -s)" in
+          Linux) platform="unknown-linux-gnu" ;;
+          Darwin) platform="apple-darwin" ;;
+          *)
+            echo "setup-pkgwarden: unsupported operating system $(uname -s). Only Linux and macOS runners are supported; there is no Windows build of the pkgwarden CLI." >&2
+            exit 1
+            ;;
+        esac
+
+        case "$(uname -m)" in
+          x86_64 | amd64) architecture="x86_64" ;;
+          arm64 | aarch64) architecture="aarch64" ;;
+          *)
+            echo "setup-pkgwarden: unsupported CPU architecture $(uname -m). Supported: x86_64, arm64/aarch64." >&2
+            exit 1
+            ;;
+        esac
+
+        asset="pw-${architecture}-${platform}"
+        release_url="https://github.com/pkgwarden/pkgwarden_cli/releases/download/pw-v${PKGWARDEN_CLI_VERSION}"
+        download_dir="$(mktemp -d)"
+
+        curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
+          --output "${download_dir}/${asset}" "${release_url}/${asset}"
+        curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
+          --output "${download_dir}/SHA256SUMS" "${release_url}/SHA256SUMS"
+
+        # Check only our asset's line: SHA256SUMS covers every platform, and `-c` on the
+        # whole file fails on the binaries we did not download.
+        # `|| true`: under `set -e` a no-match grep would abort here, past the message below.
+        grep -E "[[:space:]]\*?${asset}\$" "${download_dir}/SHA256SUMS" > "${download_dir}/expected.sha256" || true
+        if [ ! -s "${download_dir}/expected.sha256" ]; then
+          echo "setup-pkgwarden: ${asset} is not listed in SHA256SUMS for pw-v${PKGWARDEN_CLI_VERSION}." >&2
+          rm -rf "${download_dir}"
+          exit 1
+        fi
+
+        if command -v sha256sum > /dev/null 2>&1; then
+          checksum_check=(sha256sum -c expected.sha256)
+        else
+          checksum_check=(shasum -a 256 -c expected.sha256)
+        fi
+        if ! (cd "${download_dir}" && "${checksum_check[@]}"); then
+          echo "setup-pkgwarden: checksum verification failed for ${asset}; refusing to install." >&2
+          rm -rf "${download_dir}"
+          exit 1
+        fi
+
+        install_dir="${RUNNER_TEMP}/pkgwarden-bin"
+        mkdir -p "${install_dir}"
+        install -m 755 "${download_dir}/${asset}" "${install_dir}/pw"
+        rm -rf "${download_dir}"
+        printf '%s\n' "${install_dir}" >> "${GITHUB_PATH}"
+
+    - name: Export pkgwarden gate configuration
+      shell: bash
+      env:
+        PKGWARDEN_ACTION_TOKEN: ${{ inputs.token }}
+        PKGWARDEN_ACTION_API_URL: ${{ inputs.api-url }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${PKGWARDEN_ACTION_TOKEN}" ]; then
+          echo "setup-pkgwarden: the 'token' input is empty. Pass a gate token, e.g. token: \${{ secrets.PKGWARDEN_CI_TOKEN }}." >&2
+          exit 1
+        fi
+
+        # Masking a secret that arrived through an input is not automatic when the caller
+        # built it from something other than a plain secret reference.
+        echo "::add-mask::${PKGWARDEN_ACTION_TOKEN}"
+
+        # A newline in either value would end the $GITHUB_ENV line and let the rest be read
+        # as another variable, so a token built by string concatenation upstream could
+        # inject PATH or NODE_OPTIONS into every later step. Reject instead of sanitizing:
+        # no legitimate token or URL contains one.
+        for guarded in "${PKGWARDEN_ACTION_TOKEN}" "${PKGWARDEN_ACTION_API_URL}"; do
+          case "${guarded}" in
+            *$'\n'* | *$'\r'*)
+              echo "setup-pkgwarden: the 'token' or 'api-url' input contains a line break; refusing to write it to \$GITHUB_ENV." >&2
+              exit 1
+              ;;
+          esac
+        done
+
+        # $GITHUB_ENV does carry the token by design: later steps run their own package
+        # managers and need it. Log output stays masked, and printf keeps the value on a
+        # single line with no word splitting or shell expansion.
+        {
+          printf 'PKGWARDEN_API_URL=%s\n' "${PKGWARDEN_ACTION_API_URL}"
+          printf 'PKGWARDEN_GATE_TOKEN=%s\n' "${PKGWARDEN_ACTION_TOKEN}"
+          printf 'PKGWARDEN_MODE=gate\n'
+        } >> "${GITHUB_ENV}"
+
+    - name: Configure package managers
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PKGWARDEN_API_URL: ${{ inputs.api-url }}
+        PKGWARDEN_GATE_TOKEN: ${{ inputs.token }}
+        PKGWARDEN_MODE: gate
+      run: pw ci setup
