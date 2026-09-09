@@ -23,7 +23,7 @@ inputs:
       pkgwarden CLI version to install; maps to the release tag pw-v<version>
       on github.com/pkgwarden/pkgwarden_cli.
     required: false
-    default: "0.3.0"
+    default: "0.3.1"
   working-directory:
     description: >-
       Directory holding the lockfile to configure for. GitHub Actions does not allow

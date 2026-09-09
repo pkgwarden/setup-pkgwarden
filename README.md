@@ -63,7 +63,7 @@ cannot approve exceptions or change policy.
 |---|---|---|---|
 | `token` | yes | (none) | pkgwarden gate API token. Use a `ci` token from a secret; never inline it. |
 | `api-url` | no | `https://index.pkgwarden.com/api/v1` | Base URL of the gate API. Change only for a self-hosted deployment. |
-| `version` | no | `0.3.0` | pkgwarden CLI version; resolves to release tag `pw-v<version>`. |
+| `version` | no | `0.3.1` | pkgwarden CLI version; resolves to release tag `pw-v<version>`. |
 | `working-directory` | no | `.` | Directory holding the lockfiles to configure for. |
 
 The action verifies the downloaded binary against the release's `SHA256SUMS` and fails the
@@ -81,6 +81,12 @@ job if it does not match.
 
 `UV_DEFAULT_INDEX` (not `UV_INDEX`) is used deliberately: `UV_INDEX` only *adds* an index
 and leaves PyPI as a fallback, which would let a blocked package resolve anyway.
+
+The generated files also pace each client so that several jobs sharing one token queue against
+the index instead of aborting: the `.npmrc` carries `fetch-retries` and its backoff window plus
+the configured client's own concurrency limit (`network-concurrency` for pnpm and yarn,
+`maxsockets` for npm), and the Python environment carries `UV_HTTP_RETRIES` and `PIP_RETRIES`.
+Set any of these yourself in a later step if your job needs different numbers.
 
 ## Poetry
 
